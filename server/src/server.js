@@ -1,43 +1,21 @@
 
-import express from "express";
-import cors from "cors";
-import dotenv from "dotenv";
-import mongoose from "mongoose";
+import dotenv from 'dotenv'
+import mongoose from 'mongoose'
+import { connectDatabase } from './database.js'
 
-dotenv.config();
+dotenv.config({ quiet: true })
+const { createApp } = await import('./app.js')
+const PORT = process.env.PORT || 5000
 
-const app = express();
-
-// Middleware
-app.use(cors({
-  origin: "http://localhost:5173"
-}));
-
-app.use(express.json());
-
-// Test route
-app.get("/", (req, res) => {
-  res.send("EcoCycle Backend is Running Successfully!");
-});
-
-// Server port
-const PORT = process.env.PORT || 5000;
-
-// Connect to MongoDB Atlas
-async function startServer() {
-  try {
-    await mongoose.connect(process.env.MONGODB_URI);
-
-    console.log("MongoDB connected successfully");
-
-    app.listen(PORT, () => {
-      console.log(`Server running on port ${PORT}`);
-    });
-
-  } catch (error) {
-    console.error("MongoDB connection failed:", error.message);
-    process.exit(1);
-  }
+try {
+  await connectDatabase()
+  console.log('MongoDB connected successfully')
+  const server = createApp().listen(PORT, () => console.log(`EcoCycle API listening on port ${PORT}`))
+  const shutdown = () => server.close(async () => { await mongoose.disconnect(); process.exit(0) })
+  process.on('SIGINT', shutdown)
+  process.on('SIGTERM', shutdown)
+  server.on('error', () => { console.error('The API could not start. Check whether its port is already in use.'); process.exit(1) })
+} catch {
+  console.error('MongoDB connection failed. Run npm run db:check for a credential-safe diagnosis.')
+  process.exitCode = 1
 }
-
-startServer();
