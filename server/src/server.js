@@ -1,9 +1,9 @@
 
 import dotenv from 'dotenv'
 import mongoose from 'mongoose'
-import { connectDatabase } from './database.js'
+import { connectDatabase, getDatabaseFailureAdvice } from './database.js'
 
-dotenv.config({ quiet: true })
+dotenv.config({ path: new URL('../.env', import.meta.url), quiet: true })
 const { createApp } = await import('./app.js')
 const PORT = process.env.PORT || 5000
 
@@ -15,7 +15,9 @@ try {
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)
   server.on('error', () => { console.error('The API could not start. Check whether its port is already in use.'); process.exit(1) })
-} catch {
-  console.error('MongoDB connection failed. Run npm run db:check for a credential-safe diagnosis.')
+} catch (error) {
+  console.error(`MongoDB connection failed. ${getDatabaseFailureAdvice(error)}`)
+  console.error('For local development without Atlas, run npm run dev:local.')
+  await mongoose.disconnect()
   process.exitCode = 1
 }

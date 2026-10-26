@@ -28,7 +28,11 @@ npm run db:check
 npm run dev
 ```
 
-The original `MONGODB_URI` and `PORT` settings remain supported. The current Atlas connection failed verification with system and project DNS outside the sandbox. Check cluster availability, DNS/network access and your exact client IP in the Atlas access list. The diagnostic command never prints credentials. See `server/.env.example` for optional settings; **do not overwrite the existing .env**.
+The original `MONGODB_URI` and `PORT` settings remain supported. The earlier password-template issue was corrected and a connection was verified at that time. A later failure was traced to a TLS handshake rejection before authentication; it does not establish that the password is incorrect. `npm run db:check` inspects nested driver errors and reports a diagnosis without printing credentials or changing records. System DNS also failed on this computer; the project resolvers resolved the cluster but encountered the TLS rejection.
+
+For `ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR`, first check the correct Atlas project's **Security → Network Access → IP Access List**. If your current public IP is missing, select **Add IP Address → Add Current IP Address**, confirm the entry and wait until it is **Active**. An internet reconnect, VPN change or expired temporary entry can change access. If the current IP is already allowed, check cluster availability and VPN/firewall/TLS-inspection settings. The TLS error alone does not identify which of these caused the rejection. See [MongoDB's connection troubleshooting](https://www.mongodb.com/docs/atlas/troubleshoot-connection/).
+
+Run `npm run db:check` again after the setting is corrected. If nodemon is waiting after a correction, type `rs` and press Enter, or stop it with Ctrl+C and run `npm run dev` again. For development without Atlas, `npm run dev:local` remains a separate persistent local database option; existing Atlas records are not copied into it.
 
 ## Features
 

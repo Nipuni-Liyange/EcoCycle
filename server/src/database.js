@@ -1,6 +1,7 @@
 import mongoose from 'mongoose'
 import dns from 'node:dns'
 import { initializeModels } from './models.js'
+export { getDatabaseFailureAdvice } from './databaseErrors.js'
 
 export function configureDns() {
   // Retain the existing resolver defaults; allow system DNS without changing .env.

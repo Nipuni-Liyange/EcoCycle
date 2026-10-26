@@ -1,8 +1,9 @@
 import dotenv from 'dotenv'
 import dns from 'node:dns'
 import mongoose from 'mongoose'
+import { diagnoseDatabaseError } from '../src/databaseErrors.js'
 
-dotenv.config({ quiet: true })
+dotenv.config({ path: new URL('../.env', import.meta.url), quiet: true })
 const uri = process.env.MONGODB_URI
 if (!uri) {
   console.log('MONGODB_URI is missing. The private .env file was not changed.')
@@ -12,18 +13,18 @@ if (!uri) {
   let success = false
   for (const resolver of resolvers) {
     dns.setServers(resolver.servers)
+    let client
     try {
-      await mongoose.connect(uri, { serverSelectionTimeoutMS: 8000, connectTimeoutMS: 8000, autoIndex: false })
-      await mongoose.connection.db.admin().ping()
+      client = new mongoose.mongo.MongoClient(uri, { serverSelectionTimeoutMS: 10000, connectTimeoutMS: 10000 })
+      await client.connect()
+      await client.db('admin').command({ ping: 1 })
       console.log(`${resolver.label}: MongoDB connection and ping succeeded.`)
       success = true
     } catch (error) {
-      const code = error.code || error.cause?.code
-      const message = String(error.message || '')
-      const category = /querySrv|queryTxt|ENOTFOUND|ECONNREFUSED|ETIMEOUT/.test(message) ? 'DNS lookup or resolver connectivity failed' : code === 18 || /authentication/i.test(message) ? 'database authentication failed' : /certificate|TLS|SSL/i.test(message) ? 'TLS negotiation failed' : 'connection timed out or network/Atlas access list prevented access'
-      console.log(`${resolver.label}: ${category}.`)
+      const diagnosis = diagnoseDatabaseError(error)
+      console.log(`${resolver.label}: ${diagnosis.kind}${diagnosis.code ? ` (${diagnosis.code})` : ''}. ${diagnosis.message}`)
     } finally {
-      await mongoose.disconnect()
+      await client?.close()
     }
   }
   console.log('No credentials were printed and no database records were modified.')
