@@ -3,9 +3,10 @@ import mongoose from 'mongoose'
 import { Pickup } from '../models.js'
 import { authenticate, authorize, csrf } from '../auth.js'
 import { categories, choice, conditions, districts, HttpError, pickupInput, statuses, text } from '../validation.js'
+import { photoChanges, photoReferences, processPhoto } from '../photos.js'
 
 const router = Router()
-router.use(authenticate, csrf)
+router.use((req, res, next) => req.user ? next() : authenticate(req, res, next), csrf)
 router.get('/options', (req, res) => res.json({ categories, conditions, districts, statuses }))
 
 function ownScope(user) {
@@ -14,11 +15,18 @@ function ownScope(user) {
 
 function visible(pickup, viewer) {
   const item = typeof pickup.toObject === 'function' ? pickup.toObject() : { ...pickup }
+  item.photos = photoReferences(item)
+  delete item.image
+  delete item.hasLegacyImage
   if (viewer.role === 'collector' && !item.collector) {
     delete item.address
     delete item.user
   }
   return item
+}
+
+function readableScope(user) {
+  return user.role === 'collector' ? { $or: [{ collector: user._id }, { status: 'pending', collector: null }] } : { user: user._id }
 }
 
 router.get('/stats', async (req, res) => {
@@ -48,15 +56,21 @@ router.get('/', async (req, res) => {
   const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1))
   const limit = Math.max(1, Math.min(50, Number.parseInt(req.query.limit, 10) || 10))
   const [requests, total] = await Promise.all([
-    Pickup.find(filter).sort({ createdAt: -1, _id: -1 }).skip((page - 1) * limit).limit(limit).lean(),
+    Pickup.aggregate([
+      { $match: filter }, { $sort: { createdAt: -1, _id: -1 } }, { $skip: (page - 1) * limit }, { $limit: limit },
+      { $set: { hasLegacyImage: { $gt: [{ $strLenBytes: { $ifNull: ['$image', ''] } }, 0] } } },
+      { $project: { image: 0, 'photos.data': 0 } },
+    ]),
     Pickup.countDocuments(filter),
   ])
   res.json({ requests: requests.map(item => visible(item, req.user)), total, page, pages: Math.ceil(total / limit) })
 })
 
 router.post('/', authorize('user'), async (req, res) => {
-  const request = await Pickup.create({ ...pickupInput(req.body), user: req.user._id, timeline: [{ status: 'pending', note: 'Pickup request submitted.' }] })
-  res.status(201).json({ request })
+  const input = pickupInput(req.body)
+  const photos = await photoChanges(req.body)
+  const request = await Pickup.create({ ...input, ...photos, user: req.user._id, timeline: [{ status: 'pending', note: 'Pickup request submitted.' }] })
+  res.status(201).json({ request: visible(request, req.user) })
 })
 
 router.param('id', (req, res, next, id) => {
@@ -65,19 +79,37 @@ router.param('id', (req, res, next, id) => {
 })
 
 router.get('/:id', async (req, res) => {
-  const scope = req.user.role === 'collector' ? { $or: [{ collector: req.user._id }, { status: 'pending', collector: null }] } : { user: req.user._id }
+  const scope = readableScope(req.user)
   const request = await Pickup.findOne({ _id: req.params.id, ...scope }).select('+image').populate('collector', 'name email phone').lean()
   if (!request) throw new HttpError(404, 'Pickup request not found.')
   if (req.user.role === 'collector' && request.collector) await Pickup.populate(request, { path: 'user', select: 'name email phone' })
   res.json({ request: visible(request, req.user) })
 })
 
+router.get('/:id/photos/:photoId', async (req, res) => {
+  const { photoId } = req.params
+  if (photoId !== 'legacy' && !/^[a-f0-9]{24}$/.test(photoId)) throw new HttpError(404, 'Photo not found.')
+  // Apply the same ownership/collector visibility rules on EVERY image request.
+  const request = await Pickup.findOne({ _id: req.params.id, ...readableScope(req.user) }).select('+image +photos.data')
+  if (!request) throw new HttpError(404, 'Photo not found.')
+  const photo = photoId === 'legacy' && request.image ? await processPhoto(request.image) : request.photos.find(item => item._id.toString() === photoId)
+  if (!photo?.data) throw new HttpError(404, 'Photo not found.')
+  res.set({ 'Content-Type': 'image/webp', 'Cache-Control': 'private, no-store', 'Content-Disposition': 'inline', 'X-Content-Type-Options': 'nosniff' })
+  res.send(Buffer.from(photo.data))
+})
+
 router.patch('/:id', authorize('user'), async (req, res) => {
   const input = pickupInput(req.body)
   if (!Number.isInteger(req.body.version)) throw new HttpError(422, 'Reload this request before saving your changes.')
-  const request = await Pickup.findOneAndUpdate({ _id: req.params.id, user: req.user._id, status: 'pending', collector: null, __v: req.body.version }, { $set: input, $inc: { __v: 1 } }, { returnDocument: 'after', runValidators: true }).select('+image')
+  const scope = { _id: req.params.id, user: req.user._id, status: 'pending', collector: null, __v: req.body.version }
+  const current = await Pickup.findOne(scope).select('+image +photos.data')
+  if (!current) throw new HttpError(409, 'This request has changed or is no longer pending. Refresh it before editing.')
+  const photos = await photoChanges(req.body, current)
+  // Recheck the version/status atomically after processing, including races
+  // against a collector accepting the request or a different editing tab.
+  const request = await Pickup.findOneAndUpdate(scope, { $set: { ...input, ...photos }, $inc: { __v: 1 } }, { returnDocument: 'after', runValidators: true }).select('+image')
   if (!request) throw new HttpError(409, 'This request has changed or is no longer pending. Refresh it before editing.')
-  res.json({ request })
+  res.json({ request: visible(request, req.user) })
 })
 
 router.delete('/:id', authorize('user'), async (req, res) => {
@@ -91,7 +123,7 @@ router.post('/:id/accept', authorize('collector'), async (req, res) => {
     $set: { collector: req.user._id, status: 'accepted' }, $inc: { __v: 1 }, $push: { timeline: { status: 'accepted', at: new Date(), note: 'Accepted by a recycling collector.' } },
   }, { returnDocument: 'after' })
   if (!request) throw new HttpError(409, 'This request is no longer available. Another collector may have accepted it.')
-  res.json({ request })
+  res.json({ request: visible(request, req.user) })
 })
 
 router.post('/:id/schedule', authorize('collector'), async (req, res) => {
@@ -103,7 +135,7 @@ router.post('/:id/schedule', authorize('collector'), async (req, res) => {
     $set: { status: 'scheduled', scheduledAt: at }, $inc: { __v: 1 }, $push: { timeline: { status: 'scheduled', at: new Date(), note: `Pickup arranged for ${at.toISOString()}.${note ? ` ${note}` : ''}` } },
   }, { returnDocument: 'after', runValidators: true })
   if (!request) throw new HttpError(409, 'Only your accepted or scheduled collections can be scheduled.')
-  res.json({ request })
+  res.json({ request: visible(request, req.user) })
 })
 
 router.post('/:id/status', authorize('collector'), async (req, res) => {
@@ -113,7 +145,7 @@ router.post('/:id/status', authorize('collector'), async (req, res) => {
     $set: { status }, $inc: { __v: 1 }, $push: { timeline: { status, at: new Date(), note: note || (status === 'collected' ? 'Items collected.' : 'Recycling completed, as reported by the collector.') } },
   }, { returnDocument: 'after' })
   if (!request) throw new HttpError(409, 'This status change is not allowed. Refresh the request to see its current stage.')
-  res.json({ request })
+  res.json({ request: visible(request, req.user) })
 })
 
 export default router

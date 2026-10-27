@@ -28,7 +28,7 @@ Users can change or delete their own requests only while pending. A version chec
 
 Available-request lists and details hide the exact street address and owner identifier/contact details. Those details are shared with the assigned collector after acceptance. Users see their assigned collector’s contact details. No member can browse another user’s private requests.
 
-Optional JPEG, PNG and WebP photos up to 2 MB are validated by MIME type and file signature, stored with the MongoDB request, excluded from list responses, and displayed only in authorized details. There is no public upload directory. A description field reminds users to place addresses and contact details in dedicated fields.
+Up to three optional JPG, PNG and WebP photos (2 MB each) are decoded and re-encoded by Sharp, stripped of metadata, and stored atomically inside the MongoDB pickup. Lists and details expose only stable IDs and authenticated image URLs. Photos appear in request lists, details and collector views. Owners can retain, remove or replace them while pending. Every image read checks ownership or collector visibility; pending photos are available to collectors considering the request, then restricted to the owner and assigned collector after acceptance. There is no public upload directory. See [photo uploads](photo-uploads.md) for details and verification.
 
 The dashboard uses database aggregates; lists use database filtering and pagination. Empty states are real empty states. There are no seeded accounts, fabricated statistics or fake successful API responses.
 
@@ -49,6 +49,7 @@ Dates are shown in Sri Lanka time. Preferred dates must be today or later; colle
 | GET | `/api/pickups` | Paginated own requests; collector `scope=available` or `scope=history` |
 | POST | `/api/pickups` | Create a pickup as a General User |
 | GET | `/api/pickups/:id` | Authorized request details and timeline |
+| GET | `/api/pickups/:id/photos/:photoId` | Private processed image; session and request access required |
 | PATCH | `/api/pickups/:id` | Update own pending request using its `version` |
 | DELETE | `/api/pickups/:id` | Delete own pending request |
 | POST | `/api/pickups/:id/accept` | Atomically accept as a collector |
@@ -59,7 +60,7 @@ List parameters: `q`, `status`, `district`, `page`, `limit` (maximum 50). Mutati
 
 ## Database connectivity
 
-`npm run db:check` loads the existing `.env` privately, tests system DNS and the existing public DNS configuration, and performs a read-only MongoDB ping. It prints only sanitized categories and never the connection string. Current Atlas connectivity failed with both configurations even outside the sandbox: system DNS failed during lookup; public DNS reached a connection timeout/access-list/network failure. This does not establish which Atlas/network setting is responsible.
+`npm run db:check` loads the existing `.env` privately, tests system DNS and the configured public DNS resolvers, and performs a read-only MongoDB ping. It prints only sanitized categories and never the connection string. On 2026-10-27, system DNS returned `ECONNREFUSED` for the Atlas SRV/TXT lookups; the configured public resolvers resolved them, but the MongoDB ping received `ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR` before authentication. A separate direct TLS probe with certificate verification enabled received the same alert, and the normal backend startup reported the same failure. The configured URI uses `mongodb+srv` and does not disable TLS. This establishes that the failure occurs before database login, but does not identify whether Atlas IP access rules, cluster availability, or a VPN/firewall/TLS-inspection network setting is responsible. Do not disable certificate verification. Check Atlas Network Access / IP Access List for this computer's current public IP and an Active entry; if it is already allowed, check cluster availability and network/VPN/proxy settings. No credentials were printed, and the checks did not modify database records. Actual Atlas CRUD could not be verified while TLS was rejected.
 
 The `.env` is unchanged and ignored. The normal `npm run dev` / `npm start` path continues to use that Atlas configuration and fails clearly when it cannot connect. Check cluster availability, outbound network access and the Atlas access list in your own account; add only the required client IP, and do not broadly expose the cluster.
 

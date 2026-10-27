@@ -6,6 +6,7 @@ import mongoose from 'mongoose'
 import authRoutes from './routes/authRoutes.js'
 import pickupRoutes from './routes/pickupRoutes.js'
 import { HttpError } from './validation.js'
+import { authenticate, authorize, csrf } from './auth.js'
 
 export function createApp() {
   const app = express()
@@ -25,12 +26,21 @@ export function createApp() {
     }
     next()
   })
+  app.use('/api', rateLimit({ windowMs: 60 * 1000, limit: 240, standardHeaders: 'draft-8', legacyHeaders: false, message: { message: 'Too many requests. Please try again shortly.' } }))
+  const uploadJson = express.json({ limit: '9mb' })
+  // Three 2 MiB photos need about 8 MiB in base64. Authenticate and check CSRF
+  // before reading the larger body; other endpoints retain their existing cap.
+  app.use('/api/pickups', (req, res, next) => {
+    const photoWrite = req.method === 'POST' && req.path === '/' || req.method === 'PATCH' && /^\/[a-f0-9]{24}\/?$/i.test(req.path)
+    if (!photoWrite) return next()
+    if (mongoose.connection.readyState !== 1) throw new HttpError(503, 'The database is temporarily unavailable. Please try again shortly.')
+    return authenticate(req, res, () => csrf(req, res, () => authorize('user')(req, res, () => uploadJson(req, res, next))))
+  })
   app.use(express.json({ limit: '3mb' }))
   app.use('/api', (req, res, next) => {
     if (!['GET', 'HEAD', 'OPTIONS'].includes(req.method) && (!req.body || typeof req.body !== 'object' || Array.isArray(req.body))) throw new HttpError(422, 'Send a JSON object with the required fields.')
     next()
   })
-  app.use('/api', rateLimit({ windowMs: 60 * 1000, limit: 240, standardHeaders: 'draft-8', legacyHeaders: false, message: { message: 'Too many requests. Please try again shortly.' } }))
   app.get('/', (req, res) => res.send('EcoCycle Backend is Running Successfully!'))
   app.get('/api/health', (req, res) => res.status(mongoose.connection.readyState === 1 ? 200 : 503).json({ status: mongoose.connection.readyState === 1 ? 'ok' : 'unavailable', database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected' }))
   app.use('/api', (req, res, next) => {
@@ -43,7 +53,7 @@ export function createApp() {
   app.use((error, req, res, next) => {
     if (res.headersSent) return next(error)
     if (error.code === 11000) return res.status(409).json({ message: 'An account with this email already exists.', fields: { email: 'Try logging in instead.' } })
-    if (error.type === 'entity.too.large') return res.status(413).json({ message: 'The image is too large. Choose a file smaller than 2 MB.' })
+    if (error.type === 'entity.too.large') return res.status(413).json({ message: 'The request is too large. Choose up to three photos, no more than 2 MB each.' })
     if (error.type === 'entity.parse.failed') return res.status(400).json({ message: 'The request contains invalid JSON.' })
     if (error.name === 'ValidationError' || error.name === 'CastError') return res.status(422).json({ message: 'Please check the supplied values.' })
     if (error instanceof HttpError) return res.status(error.status).json({ message: error.message, fields: error.fields })

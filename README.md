@@ -39,7 +39,7 @@ Run `npm run db:check` again after the setting is corrected. If nodemon is waiti
 - Short responsive landing page retaining the original hero photograph, image library and branding.
 - Real registration/login/logout, bcrypt passwords, revocable MongoDB sessions, HTTP-only cookies and CSRF protection.
 - Exactly two roles: General User and Recycling Collector, with direct collector registration.
-- Persistent create/read/update/delete operations for pickups, optional image, validation, search, filters and pagination.
+- Persistent pickup CRUD with up to three private JPG/PNG/WebP photos (2 MB each), previews, removal/replacement on pending requests, validation, search, filters and pagination.
 - General User dashboard, requests, editing, tracking and profile.
 - Collector dashboard, available pickups, atomic acceptance, scheduling, status updates, history and profile.
 - Real database statistics, empty/loading/error states, route protection and ownership enforcement.
@@ -56,6 +56,8 @@ npm run build
 ```
 
 Backend tests start an isolated real MongoDB instance, use disposable synthetic data and never connect to Atlas. Tests prefer the installed MongoDB binary; if absent, mongodb-memory-server downloads a test binary. Set `MONGOD_BINARY` for a custom installed executable.
+
+See [photo upload implementation](docs/photo-uploads.md) for storage, access rules, API examples, verification results and the exact changed-file list. Sharp safely decodes and re-encodes uploads; Multer is unnecessary because the existing JSON request flow is retained.
 
 ## Design reference and documentation
 

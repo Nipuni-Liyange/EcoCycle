@@ -19,6 +19,16 @@ const sessionSchema = new Schema({
   expiresAt: { type: Date, required: true, expires: 0 },
 })
 
+// Binary data stays inside the pickup's atomic MongoDB document. API responses
+// expose only each photo's ID, dimensions and authenticated URL.
+const photoSchema = new Schema({
+  data: { type: Buffer, required: true, select: false },
+  contentType: { type: String, enum: ['image/webp'], required: true },
+  width: { type: Number, required: true },
+  height: { type: Number, required: true },
+  size: { type: Number, required: true, max: 2 * 1024 * 1024 },
+})
+
 const pickupSchema = new Schema({
   user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   collector: { type: Schema.Types.ObjectId, ref: 'User', default: null },
@@ -32,6 +42,7 @@ const pickupSchema = new Schema({
   address: { type: String, required: true },
   preferredDate: { type: String, required: true },
   image: { type: String, default: '', select: false },
+  photos: { type: [photoSchema], default: [], validate: value => value.length <= 3 },
   status: { type: String, enum: statuses, default: 'pending' },
   scheduledAt: { type: Date, default: null },
   timeline: [{ _id: false, status: { type: String, enum: statuses, required: true }, at: { type: Date, default: Date.now }, note: { type: String, maxlength: 500, default: '' } }],

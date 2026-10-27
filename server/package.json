@@ -21,7 +21,8 @@
     "express": "^5.3.0",
     "express-rate-limit": "^8.7.1",
     "helmet": "^8.3.0",
-    "mongoose": "^9.11.1"
+    "mongoose": "^9.11.1",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "mongodb-memory-server": "^11.3.0",

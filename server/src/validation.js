@@ -75,7 +75,6 @@ export function pickupInput(body) {
     city: text(body.city, 'city', 2, 100),
     address: text(body.address, 'address', 5, 500),
     preferredDate: dateOnly(body.preferredDate),
-    image: imageData(body.image),
   }
 }
 

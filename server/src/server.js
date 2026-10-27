@@ -17,7 +17,7 @@ try {
   server.on('error', () => { console.error('The API could not start. Check whether its port is already in use.'); process.exit(1) })
 } catch (error) {
   console.error(`MongoDB connection failed. ${getDatabaseFailureAdvice(error)}`)
-  console.error('For local development without Atlas, run npm run dev:local.')
+  console.error('Run npm run db:check for a read-only Atlas connectivity diagnosis.')
   await mongoose.disconnect()
   process.exitCode = 1
 }
