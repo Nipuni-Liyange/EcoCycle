@@ -1,8 +1,7 @@
-import { BrowserRouter, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import PublicLayout from './layouts/PublicLayout'
 import Home from './pages/public/Home'
 import About from './pages/public/About'
-import HowItWorks from './pages/public/HowItWorks'
 import Services from './pages/public/Services'
 import Contact from './pages/public/Contact'
 import AuthPage from './pages/public/AuthPage'
@@ -26,7 +25,7 @@ export default function App() {
         <Route element={<PublicLayout />}>
           <Route index element={<Home />} />
           <Route path="about" element={<About />} />
-          <Route path="how-it-works" element={<HowItWorks />} />
+          <Route path="how-it-works" element={<Navigate to="/#how-it-works" replace />} />
           <Route path="services" element={<Services />} />
           <Route path="contact" element={<Contact />} />
           <Route path="login" element={<AuthPage key="login" mode="login" />} />

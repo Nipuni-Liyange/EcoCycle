@@ -77,6 +77,11 @@ test('authentication, ownership, CRUD, concurrency and the complete collector li
   })
   await t.test('login failures, CSRF, foreign origins and profile role changes are rejected', async () => {
     assert.equal((await client().login({ ...credentials, password: 'incorrect-password' })).status, 401)
+    assert.equal((await client().login({ ...credentials, role: 'collector' })).status, 401)
+    assert.equal((await client().login({ ...credentials, role: 'admin' })).status, 422)
+    const collectorLogin = await client().login({ email: 'collector@example.test', password: credentials.password, role: 'collector' })
+    assert.equal(collectorLogin.status, 200)
+    assert.equal(collectorLogin.body.user.role, 'collector')
     assert.equal((await owner.agent.post('/api/pickups').set('Origin', origin).send(sample)).status, 403)
     assert.equal((await owner.agent.post('/api/auth/login').set('Origin', 'https://untrusted.example').send(credentials)).status, 403)
     assert.equal((await owner.agent.post('/api/auth/login').type('form').send(credentials)).status, 415)

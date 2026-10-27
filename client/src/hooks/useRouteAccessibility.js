@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { useLocation } from 'react-router-dom'
 
-const titles = { '/': 'Give your old tech a better next life', '/about': 'About us', '/how-it-works': 'How it works', '/services': 'Services & accepted electronics', '/contact': 'Contact & common questions', '/login': 'Login', '/register': 'Register' }
+const titles = { '/': 'Give your old tech a better next life', '/about': 'About us', '/services': 'Services & accepted electronics', '/contact': 'Contact & common questions', '/login': 'Login', '/register': 'Register' }
 
 export default function useRouteAccessibility() {
   const { pathname, hash } = useLocation()

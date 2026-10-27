@@ -4,7 +4,7 @@ import { NavLink } from 'react-router-dom'
 import Brand from './Brand'
 import { dashboardPath, useAuth } from '../context/authContext'
 
-const links = [['/', 'Home'], ['/how-it-works', 'How It Works'], ['/about', 'About']]
+const links = [['/', 'Home'], ['/about', 'About']]
 
 export default function Navbar() {
   const { user } = useAuth()

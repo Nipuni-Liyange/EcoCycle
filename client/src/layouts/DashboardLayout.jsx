@@ -29,7 +29,7 @@ export default function DashboardLayout() {
       <span className="workspace-label">{collector ? 'COLLECTOR WORKSPACE' : 'YOUR ECOCYCLE'}</span>
       <nav aria-label="Dashboard navigation">{links.map(([to, label, Icon]) => <NavLink to={to} key={to} end onClick={() => setOpenAt(null)}><Icon size={18} aria-hidden="true" />{label}</NavLink>)}</nav>
       <div className="sidebar-bottom">
-        <Link className="sidebar-guide" to="/how-it-works"><Leaf size={18} aria-hidden="true" /><span>Collection guide</span><ArrowUpRight size={14} aria-hidden="true" /></Link>
+        <Link className="sidebar-guide" to="/#how-it-works"><Leaf size={18} aria-hidden="true" /><span>Collection steps</span><ArrowUpRight size={14} aria-hidden="true" /></Link>
         <Link className="sidebar-help" to="/contact"><CircleHelp size={18} />Help & guidance</Link>
         <button className="signout" disabled={busy} onClick={signOut}><LogOut size={18} />{busy ? 'Signing out…' : 'Log out'}</button>
       </div>

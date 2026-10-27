@@ -23,9 +23,10 @@ router.post('/register', authLimit, async (req, res) => {
 router.post('/login', authLimit, async (req, res) => {
   const address = email(req.body.email)
   const secret = password(req.body.password)
+  const role = req.body.role === undefined ? undefined : choice(req.body.role, 'role', ['user', 'collector'])
   const user = await User.findOne({ email: address }).select('+passwordHash')
   const matches = await bcrypt.compare(secret, user?.passwordHash || dummyHash)
-  if (!user || !matches) throw new HttpError(401, 'Email or password is incorrect.')
+  if (!user || !matches || role && user.role !== role) throw new HttpError(401, 'Email or password is incorrect.')
   res.json(await createSession(req, res, user))
 })
 

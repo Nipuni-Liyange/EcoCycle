@@ -63,4 +63,4 @@ See [photo upload implementation](docs/photo-uploads.md) for storage, access rul
 
 The supplied Figma URL requires sign-in in the available browser, and no exported screens were attached. Exact visual matching remains unverified. The implementation follows the written brief and extends the existing visual identity. All original photos and logo assets are preserved.
 
-See [application handoff](docs/application.md) for API routes, security behavior, database troubleshooting and deployment settings. [Phase A](docs/phase-a.md) is historical and superseded by the current implementation; no administrator role is included. Existing public About, How It Works, Services and Contact guidance pages remain available.
+See [application handoff](docs/application.md) for API routes, security behavior, database troubleshooting and deployment settings. [Phase A](docs/phase-a.md) is historical and superseded by the current implementation; no administrator role is included. Existing public About, Services and Contact guidance pages remain available. Collection steps are summarized on the homepage.
