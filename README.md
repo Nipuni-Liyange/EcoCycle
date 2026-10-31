@@ -2,13 +2,13 @@
 
 E-waste collection and recycling coordination, built in the existing React/Vite + Express/Mongoose project.
 
-## Run the full app locally
+## Run the app with your existing Atlas accounts
 
-MongoDB Community 8.0 is already installed on this computer. For a working local database, open two PowerShell terminals:
+Use the existing Atlas connection in the private `server/.env` file for your registered accounts and pickup requests. Open two PowerShell terminals:
 
 ```powershell
 cd E:\ecocycle\EcoCycle\server
-npm run dev:local
+npm run dev
 ```
 
 ```powershell
@@ -16,11 +16,13 @@ cd E:\ecocycle\EcoCycle\client
 npm run dev
 ```
 
-Open [EcoCycle](http://localhost:5173). Register a General User to create pickups, or a Recycling Collector to accept and schedule them. There are no seeded accounts.
+Open [EcoCycle](http://127.0.0.1:4000). The Vite configuration uses port 4000; if `npm run dev` reports that the port is in use, the frontend may already be running, so open this URL instead of starting another copy. Register a General User to create pickups, or a Recycling Collector to accept and schedule them. There are no seeded accounts.
 
-The explicit local option starts a separate MongoDB on loopback port 27018 and stores records under ignored `server/.local-data/mongodb`. Data survives API/database restarts. It does not read or modify the private Atlas `.env`. Stop the backend with Ctrl+C. A fresh checkout needs `npm ci` in both folders; Node 20.19+ and MongoDB Community are required for this local mode.
+Wait for `MongoDB connected successfully` and `EcoCycle API listening on port 5000` in the backend terminal. Log in with the registered **email address**, password and matching account type. Run only one backend on port 5000 and one frontend on port 4000. A fresh checkout needs `npm ci` in both folders and Node 20.19+.
 
-## Use the existing Atlas configuration
+If you previously started `npm run dev:local`, stop that backend with Ctrl+C before running `npm run dev` in `server`. Local mode uses a separate database, so its accounts and passwords can differ even when an email address is the same. Do not create a replacement account to recover an existing Atlas account.
+
+## Diagnose an Atlas connection problem
 
 ```powershell
 cd E:\ecocycle\EcoCycle\server
@@ -33,6 +35,17 @@ The original `MONGODB_URI` and `PORT` settings remain supported. The earlier pas
 For `ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR`, first check the correct Atlas project's **Security → Network Access → IP Access List**. If your current public IP is missing, select **Add IP Address → Add Current IP Address**, confirm the entry and wait until it is **Active**. An internet reconnect, VPN change or expired temporary entry can change access. If the current IP is already allowed, check cluster availability and VPN/firewall/TLS-inspection settings. The TLS error alone does not identify which of these caused the rejection. See [MongoDB's connection troubleshooting](https://www.mongodb.com/docs/atlas/troubleshoot-connection/).
 
 Run `npm run db:check` again after the setting is corrected. If nodemon is waiting after a correction, type `rs` and press Enter, or stop it with Ctrl+C and run `npm run dev` again. For development without Atlas, `npm run dev:local` remains a separate persistent local database option; existing Atlas records are not copied into it.
+
+## Optional separate local database
+
+Use this only when you intentionally want local development accounts instead of your Atlas accounts. MongoDB Community 8.0 is installed on this computer:
+
+```powershell
+cd E:\ecocycle\EcoCycle\server
+npm run dev:local
+```
+
+This starts a separate MongoDB on loopback port 27018 and stores records under ignored `server/.local-data/mongodb`. Data survives API/database restarts. It does not read or modify the private Atlas `.env`, and it does not copy or synchronize Atlas accounts or pickups. Stop the backend with Ctrl+C before switching database modes.
 
 ## Features
 

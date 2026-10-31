@@ -174,6 +174,101 @@ test('authentication, ownership, CRUD, concurrency and the complete collector li
   })
 })
 
+test('tracking, active collections and completed history stay distinct and private', { timeout: 120000 }, async t => {
+  const owner = client(), stranger = client(), collector = client(), competitor = client()
+  const people = []
+  for (const [account, name, role] of [[owner, 'lists-owner', 'user'], [stranger, 'lists-stranger', 'user'], [collector, 'lists-collector', 'collector'], [competitor, 'lists-competitor', 'collector']]) {
+    const result = await account.register({ ...credentials, name, email: `${name}@example.test`, phone: '+94 77 123 4567', role })
+    assert.equal(result.status, 201)
+    people.push(result.body.user)
+  }
+  const [ownerUser, strangerUser, assignedUser, otherCollector] = people
+  const ownerId = new mongoose.Types.ObjectId(ownerUser._id)
+  const assignedId = new mongoose.Types.ObjectId(assignedUser._id)
+  const fixtures = []
+  for (const status of ['pending', 'accepted', 'scheduled', 'collected', 'recycled']) {
+    fixtures.push(await Pickup.create({ ...sample, itemName: `Tracking ${status}`, user: ownerId, collector: status === 'pending' ? null : assignedId, status,
+      timeline: [{ status: 'pending', at: new Date('2026-10-01T08:00:00Z') }, ...(status === 'collected' || status === 'recycled' ? [{ status: 'collected', at: new Date('2026-10-02T08:00:00Z') }] : []), ...(status === 'recycled' ? [{ status: 'recycled', at: new Date('2026-10-04T08:00:00Z') }] : [])],
+    }))
+  }
+  const oldCompleted = await Pickup.create({ ...sample, itemName: 'Earlier recycling', user: ownerId, collector: assignedId, status: 'recycled', timeline: [{ status: 'recycled', at: new Date('2026-10-03T08:00:00Z') }] })
+  const undated = await Pickup.create({ ...sample, itemName: 'Undated recycling', user: ownerId, collector: assignedId, status: 'recycled', timeline: [] })
+  const foreign = await Pickup.create({ ...sample, itemName: 'Private foreign request', user: strangerUser._id, collector: otherCollector._id, status: 'collected' })
+  const before = await Pickup.find({ user: ownerId }).sort({ _id: 1 }).lean()
+
+  await t.test('owner management includes all statuses; tracking excludes only recycled and populates authorized contacts', async () => {
+    const all = await owner.get('/pickups')
+    assert.equal(all.status, 200)
+    assert.equal(all.body.total, 7)
+    const active = await owner.get('/pickups?scope=active')
+    assert.equal(active.body.total, 4)
+    assert.deepEqual(active.body.requests.map(item => item.status).sort(), ['accepted', 'collected', 'pending', 'scheduled'])
+    assert.equal(active.body.requests.find(item => item.status === 'pending').collector, null)
+    const assigned = active.body.requests.find(item => item.status === 'accepted')
+    assert.equal(assigned.collector.email, 'lists-collector@example.test')
+    assert.equal(assigned.collector.passwordHash, undefined)
+    assert.equal(assigned.address, sample.address)
+    assert.equal((await owner.get('/pickups?scope=active&status=recycled')).status, 422)
+    assert.equal((await owner.get('/pickups?scope=active&status=accepted&q=Tracking')).body.total, 1)
+    assert.equal((await owner.get('/pickups?scope=active&q=.*')).body.total, 0)
+    assert.equal((await owner.get(`/pickups/${foreign._id}`)).status, 404)
+    assert.equal((await owner.get('/pickups?scope=history')).status, 403)
+  })
+  await t.test('collector active/history scopes cannot be broadened with query parameters', async () => {
+    const active = await collector.get('/pickups?scope=active')
+    assert.equal(active.body.total, 3)
+    assert.deepEqual(active.body.requests.map(item => item.status).sort(), ['accepted', 'collected', 'scheduled'])
+    assert.equal((await competitor.get('/pickups?scope=active')).body.total, 1)
+    assert.equal((await competitor.get('/pickups?scope=history')).body.total, 0)
+    assert.equal((await collector.get('/pickups?scope=history&status=collected')).status, 422)
+    assert.equal((await collector.get('/pickups?scope=active&status=pending')).status, 422)
+    assert.equal((await collector.get('/pickups?scope=active&status=recycled')).status, 422)
+    assert.equal((await collector.get('/pickups?scope=unknown')).status, 422)
+    assert.equal((await collector.get('/pickups?scope=history&sort=invalid')).status, 422)
+    assert.equal((await competitor.get(`/pickups/${fixtures[1]._id}`)).status, 404)
+    assert.equal((await competitor.write('post', `/pickups/${fixtures[3]._id}/status`, { status: 'recycled' })).status, 409)
+  })
+  await t.test('history uses recorded dates, sorts both ways, paginates and retains the unfiltered total', async () => {
+    const history = await collector.get('/pickups?scope=history')
+    assert.equal(history.body.total, 3)
+    assert.equal(history.body.completedTotal, 3)
+    assert.deepEqual(history.body.requests.map(item => item._id), [fixtures[4].id, oldCompleted.id, undated.id])
+    assert.equal(history.body.requests[0].collectedAt, '2026-10-02T08:00:00.000Z')
+    assert.equal(history.body.requests[0].recycledAt, '2026-10-04T08:00:00.000Z')
+    assert.equal(history.body.requests[1].collectedAt, null)
+    assert.equal(history.body.requests[2].recycledAt, null)
+    assert.equal(history.body.requests[0].hasCompletionDate, undefined)
+    assert.equal(history.body.requests.every(item => item.status === 'recycled'), true)
+    const oldest = await collector.get('/pickups?scope=history&sort=oldest')
+    assert.deepEqual(oldest.body.requests.map(item => item._id), [oldCompleted.id, fixtures[4].id, undated.id])
+    const page = await collector.get('/pickups?scope=history&limit=1&page=2')
+    assert.equal(page.body.requests[0]._id, oldCompleted.id)
+    assert.equal(page.body.pages, 3)
+    const search = await collector.get('/pickups?scope=history&q=Earlier')
+    assert.equal(search.body.total, 1)
+    assert.equal(search.body.completedTotal, 3)
+    assert.deepEqual(await Pickup.find({ user: ownerId }).sort({ _id: 1 }).lean(), before)
+  })
+  await t.test('recycling moves a collection between lists without deleting it; completed history is read-only', async () => {
+    const id = fixtures[3].id
+    assert.equal((await collector.write('post', `/pickups/${id}/status`, { status: 'recycled' })).status, 200)
+    assert.equal((await collector.get('/pickups?scope=active')).body.total, 2)
+    assert.equal((await owner.get('/pickups?scope=active')).body.total, 3)
+    const history = await collector.get('/pickups?scope=history')
+    assert.equal(history.body.total, 4)
+    assert.equal(history.body.requests.some(item => item._id === id), true)
+    assert.equal((await owner.get('/pickups')).body.total, 7)
+    assert.equal((await owner.write('patch', `/pickups/${id}`, { ...sample, version: 1 })).status, 409)
+    assert.equal((await owner.write('delete', `/pickups/${id}`)).status, 409)
+    assert.equal((await collector.write('post', `/pickups/${id}/status`, { status: 'collected' })).status, 409)
+    assert.equal((await collector.write('post', `/pickups/${id}/schedule`, { scheduledAt: `${future}T09:30:00+05:30` })).status, 409)
+    await mongoose.disconnect()
+    await mongoose.connect(database.getUri())
+    assert.equal((await Pickup.findById(id)).status, 'recycled')
+    assert.equal((await collector.get('/pickups?scope=history')).body.completedTotal, 4)
+  })
+})
+
 test('private photos survive refresh, replacement and collector transitions in real MongoDB', { timeout: 120000 }, async t => {
   const owner = client(), stranger = client(), collector = client(), competitor = client()
   const accounts = [[owner, 'photo-owner', 'user'], [stranger, 'photo-stranger', 'user'], [collector, 'photo-collector', 'collector'], [competitor, 'photo-competitor', 'collector']]

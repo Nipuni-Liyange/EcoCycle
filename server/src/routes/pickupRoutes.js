@@ -38,14 +38,18 @@ router.get('/stats', async (req, res) => {
 })
 
 router.get('/', async (req, res) => {
-  const available = req.query.scope === 'available'
+  const scope = choice(req.query.scope || 'mine', 'scope', ['mine', 'available', 'active', 'history'])
+  const available = scope === 'available'
+  const history = scope === 'history'
   if (available && req.user.role !== 'collector') throw new HttpError(403, 'Only collectors can browse available requests.')
-  const filter = available ? { status: 'pending', collector: null } : ownScope(req.user)
-  if (req.query.scope === 'history') filter.status = { $in: ['collected', 'recycled'] }
+  if (history && req.user.role !== 'collector') throw new HttpError(403, 'Collection history is available to collectors.')
+  const allowedStatuses = available ? ['pending'] : history ? ['recycled'] : scope === 'active'
+    ? statuses.filter(status => status !== 'recycled' && (req.user.role !== 'collector' || status !== 'pending')) : statuses
+  const scopeFilter = { ...(available ? { collector: null } : ownScope(req.user)), status: { $in: allowedStatuses } }
+  const filter = { ...scopeFilter }
   if (req.query.status) {
     choice(req.query.status, 'status', statuses)
-    if (available && req.query.status !== 'pending') throw new HttpError(422, 'Only pending requests are available.')
-    if (req.query.scope === 'history' && !['collected', 'recycled'].includes(req.query.status)) throw new HttpError(422, 'History contains collected and recycled requests.')
+    if (!allowedStatuses.includes(req.query.status)) throw new HttpError(422, 'This status is not included in the selected list.')
     filter.status = req.query.status
   }
   if (req.query.district) filter.district = choice(req.query.district, 'district', districts)
@@ -55,15 +59,30 @@ router.get('/', async (req, res) => {
   }
   const page = Math.max(1, Math.min(100000, Number.parseInt(req.query.page, 10) || 1))
   const limit = Math.max(1, Math.min(50, Number.parseInt(req.query.limit, 10) || 10))
-  const [requests, total] = await Promise.all([
+  const direction = choice(req.query.sort || 'newest', 'sort', ['newest', 'oldest']) === 'oldest' ? 1 : -1
+  // Completion dates come only from recorded events, never createdAt/updatedAt.
+  const eventDate = status => ({ $max: { $map: {
+    input: { $filter: { input: { $ifNull: ['$timeline', []] }, as: 'event', cond: { $eq: ['$$event.status', status] } } },
+    as: 'event', in: '$$event.at',
+  } } })
+  const historyStages = history ? [
+    { $set: { collectedAt: eventDate('collected'), recycledAt: eventDate('recycled') } },
+    { $set: { hasCompletionDate: { $ne: ['$recycledAt', null] } } },
+  ] : []
+  const [requests, total, completedTotal] = await Promise.all([
     Pickup.aggregate([
-      { $match: filter }, { $sort: { createdAt: -1, _id: -1 } }, { $skip: (page - 1) * limit }, { $limit: limit },
+      { $match: filter }, ...historyStages,
+      { $sort: history ? { hasCompletionDate: -1, recycledAt: direction, _id: direction } : { createdAt: direction, _id: direction } },
+      { $skip: (page - 1) * limit }, { $limit: limit },
       { $set: { hasLegacyImage: { $gt: [{ $strLenBytes: { $ifNull: ['$image', ''] } }, 0] } } },
-      { $project: { image: 0, 'photos.data': 0 } },
+      { $project: { image: 0, 'photos.data': 0, hasCompletionDate: 0 } },
     ]),
     Pickup.countDocuments(filter),
+    history ? Pickup.countDocuments(scopeFilter) : undefined,
   ])
-  res.json({ requests: requests.map(item => visible(item, req.user)), total, page, pages: Math.ceil(total / limit) })
+  // Only the owner's active tracking list needs the assigned collector's contacts.
+  if (scope === 'active' && req.user.role === 'user') await Pickup.populate(requests, { path: 'collector', select: 'name email phone' })
+  res.json({ requests: requests.map(item => visible(item, req.user)), total, completedTotal, page, pages: Math.ceil(total / limit) })
 })
 
 router.post('/', authorize('user'), async (req, res) => {

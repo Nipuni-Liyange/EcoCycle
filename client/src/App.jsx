@@ -39,7 +39,7 @@ export default function App() {
             <Route path="requests/new" element={<PickupForm />} />
             <Route path="requests/:id" element={<RequestDetails />} />
             <Route path="requests/:id/edit" element={<PickupForm />} />
-            <Route path="tracking" element={<Requests tracking />} />
+            <Route path="tracking" element={<Requests scope="active" tracking />} />
             <Route path="profile" element={<Profile />} />
           </Route>
         </Route>
@@ -47,7 +47,7 @@ export default function App() {
           <Route path="collector" element={<DashboardLayout />}>
             <Route index element={<Overview />} />
             <Route path="available" element={<Requests key="available" scope="available" />} />
-            <Route path="requests" element={<Requests key="collections" />} />
+            <Route path="requests" element={<Requests key="collections" scope="active" />} />
             <Route path="requests/:id" element={<RequestDetails />} />
             <Route path="history" element={<Requests key="history" scope="history" />} />
             <Route path="profile" element={<Profile />} />
